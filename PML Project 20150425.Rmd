@@ -1,0 +1,177 @@
+---
+title: "Coursera Practical Machine Learning Project"
+author: "HM"
+date: "Friday, April 24, 2015"
+output: html_document
+---
+
+
+## Introduction 
+
+### Background   
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. 
+
+### Goal
+In this project, we will use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants to predict the manner they did the excercise. The participants were asked to perform barbell lifts correctly and incorrectly in 5 different ways. 
+
+## Methodology
+For this analysis we will use a training and a test data sets that were graciously made available by the Human Activity Recognition project leaders. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har . After cleaning up the data sets we will build a model using random forest and cross-validation. Out-of- Sample errors will be also presented.
+
+#### Set Up
+```{r libs,message=FALSE}
+library(plyr)
+library(caret)
+library(dplyr)
+library(randomForest)
+library(MASS)
+library(rpart)
+library(gbm)
+
+```
+
+
+```{r setup, cache=TRUE}
+fdir <- file.path("J:","Documents","Career","Training","Online","Coursera","Practical Machine Learning","Take 2","PML Project","Data")
+
+ftrain <- "pml-training.csv"
+ftest <- "pml-testing.csv"
+
+train.org <- read.csv(file.path(fdir,ftrain),na.string = c("", "NA"))
+trndim <-dim(train.org)
+valid.org <- read.csv(file.path(fdir,ftest),na.string = c("", "NA"))
+tstdim <-dim(valid.org)
+
+```
+
+The training set contains **`r trndim[1]` rows and `r trndim[2]` columns.** The test data set contains **`r tstdim[1]` rows and `r tstdim[2]` columns.**
+
+#### Cleaning up and tidying the data
+
+```{r tidydata,cache=TRUE}
+# finding missing data
+countNAs <- function(x) sum(is.na(x))
+na.vars <- sapply(train.org, countNAs)
+Nvars <- sum(na.vars == 0)
+
+```
+
+
+```{r trimming, cache= TRUE }
+# Removing columns and rows with summary information
+training <- filter(train.org, new_window == "no")
+
+getNAs <- function(x) sum(is.na(x)) == 0
+na_cols <- sapply(training, getNAs)
+na_cols[1:6] <- FALSE # removes the unnecessary columns
+training <- training[, na_cols];trndim2 <-dim(training)
+
+
+```
+
+
+Upon review, it appears that some column contains null values and some variables may not be useful. The training set had `r Nvars` columns with no missing values. Based on the data description, some of the columns and rows contain summary information. Those rows and columns were removed for the purpose of this analysis.The final training data set had `r trndim2[1]` rows and `r trndim2[2]` columns. The test data set was also trimmed the same way.
+
+#### Cross-Validation and Models
+
+```{r splits, cache=TRUE}
+set.seed(1975)
+
+trainset <- createDataPartition(training$classe, p = 0.8, list = FALSE)
+testing <- training[-trainset,]
+training <- training[trainset,]
+
+# trainControl parameters
+ctrl <- trainControl(method = "cv")
+
+
+```
+
+
+##### Parallel processing 
+```{r speedup}
+library(parallel)
+library(doParallel)
+registerDoParallel(makeCluster(detectCores()))
+```
+
+
+##### Random forest model
+```{r modelrf,cache=TRUE}
+set.seed(7159)
+
+model.rf <- train(classe ~ ., method = "rf", data = training,
+                  trControl = ctrl, importance = T)
+predict.rf <- predict(model.rf, newdata = testing)
+
+confusionMatrix(predict.rf, testing$classe)$overall[1]
+
+```
+
+
+##### Linear Discriminant Analysis
+```{r modellda,cache=TRUE}
+
+model.lda <- train(classe ~ . -accel_arm_x, method = "lda",
+             trControl = ctrl, data = training)
+predict.lda <- predict(model.lda, newdata = testing)
+
+confusionMatrix(predict.lda, testing$classe)$overall[1]
+
+```
+
+##### Decision Tree
+```{r modeldt,cache=TRUE}
+
+set.seed(1795)
+
+model.dt <- train(classe ~ ., method = "rpart", trControl = ctrl,
+            data = training)
+predict.dt <- predict(model.dt, newdata = testing)
+confusionMatrix(predict.dt, testing$classe)$overall[1]
+
+
+```
+
+##### Boosted Decision Tree
+```{r modelbdt,cache=TRUE}
+set.seed(5179)
+
+model.bdt <- train(classe ~ ., method = "gbm", data = training,
+             trControl = ctrl, verbose = F)
+predict.bdt <- predict(model.bdt, newdata = testing)
+confusionMatrix(predict.bdt, testing$classe)$overall[1]
+
+```
+
+The best model is random forest. It had the smallest out-of-sample error rate. The results will be submitted for the course assignment.
+
+
+## Model Application
+#### Predictions on the test set
+```{r mlapp,cache=TRUE}
+predict_valid <‐ predict(model.rf, valid.org, type="raw")
+
+#write.csv(predict_valid ,"predictions.csv",row.names = FALSE)
+
+```
+
+#### Submit the predictions   
+Submit the predictions using the function provided
+
+```{r submitpred,eval=FALSE}
+
+pml_write_files = function(x){
+    n = length(x)
+    for(i in 1:n){
+        filename = paste0("problem_id_",i,".txt")
+        write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+    }
+    
+}
+
+# pml_write_files(predict_valid)
+
+```
+
+
+
